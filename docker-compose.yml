@@ -1,0 +1,51 @@
+services:
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  checkout:
+    build: .
+    command: ["node", "dist/services/checkout/bootstrap.js"]
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      PORT: "8080"
+      # DATABASE_URL points at the host machine's Postgres; on Linux this
+      # requires the extra_hosts entry below, Docker Desktop supports it natively.
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://postgres:secret@host.docker.internal:5432/mydb}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  inventory-worker:
+    build: .
+    command: ["node", "dist/workers/inventory-worker.js"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://postgres:secret@host.docker.internal:5432/mydb}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis-data:
