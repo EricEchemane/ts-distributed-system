@@ -15,7 +15,7 @@ export function createCheckoutController(eventBus: EventPublisher) {
       createdAt: new Date().toISOString(),
     } satisfies AppEvent;
 
-    req.log.info({ eventId: newEvent.id, eventType: newEvent.type }, "publishing event");
+    req.log.info({ eventId: newEvent.id, eventType: newEvent.type, body }, "publishing event");
     await eventBus.publish(newEvent);
     res.status(200).send({ message: "Order created event published" });
   };
