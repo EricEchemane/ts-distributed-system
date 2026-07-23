@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
+import pino from "pino";
 import { RedisStreamEventBus } from "@/lib/events/redis-event-bus";
 import { AppEvent, EventCatalog } from "@/lib/types";
+import { AppMetrics } from "@/lib/metrics";
+
+const testLogger = pino({ level: "silent" });
+const testMetrics = new AppMetrics("event-bus-test");
 
 function createRedisClientMock(overrides: Partial<Record<string, any>> = {}) {
   return {
@@ -25,7 +30,7 @@ function makeEvent(overrides: Partial<AppEvent> = {}): AppEvent {
 describe("RedisStreamEventBus.publish", () => {
   it("adds the event to the stream named after its type", async () => {
     const redisClient = createRedisClientMock();
-    const bus = new RedisStreamEventBus(redisClient as any);
+    const bus = new RedisStreamEventBus(redisClient as any, testLogger, testMetrics);
     const event = makeEvent();
 
     await bus.publish(event);
@@ -39,7 +44,7 @@ describe("RedisStreamEventBus.subscribe", () => {
     const redisClient = createRedisClientMock({
       xGroupCreate: vi.fn().mockRejectedValue(new Error("connection refused")),
     });
-    const bus = new RedisStreamEventBus(redisClient as any);
+    const bus = new RedisStreamEventBus(redisClient as any, testLogger, testMetrics);
 
     await expect(
       bus.subscribe("stream", "group", "consumer", {}),
@@ -50,7 +55,7 @@ describe("RedisStreamEventBus.subscribe", () => {
     const redisClient = createRedisClientMock({
       xGroupCreate: vi.fn().mockRejectedValue(new Error("BUSYGROUP already exists")),
     });
-    const bus = new RedisStreamEventBus(redisClient as any);
+    const bus = new RedisStreamEventBus(redisClient as any, testLogger, testMetrics);
 
     bus.subscribe("stream", "group", "consumer", {});
 
@@ -65,7 +70,7 @@ describe("RedisStreamEventBus.subscribe", () => {
         .mockResolvedValueOnce([{ messages: [{ id: "1-0", message: event }] }])
         .mockReturnValue(new Promise(() => {})),
     });
-    const bus = new RedisStreamEventBus(redisClient as any);
+    const bus = new RedisStreamEventBus(redisClient as any, testLogger, testMetrics);
     const handler = vi.fn().mockResolvedValue(undefined);
 
     bus.subscribe("stream", "group", "consumer", {
@@ -84,7 +89,7 @@ describe("RedisStreamEventBus.subscribe", () => {
         .mockResolvedValueOnce([{ messages: [{ id: "1-0", message: event }] }])
         .mockReturnValue(new Promise(() => {})),
     });
-    const bus = new RedisStreamEventBus(redisClient as any);
+    const bus = new RedisStreamEventBus(redisClient as any, testLogger, testMetrics);
     const handler = vi.fn().mockRejectedValue(new Error("boom"));
 
     bus.subscribe("stream", "group", "consumer", {
@@ -103,8 +108,8 @@ describe("RedisStreamEventBus.subscribe", () => {
         .mockResolvedValueOnce([{ messages: [{ id: "1-0", message: event }] }])
         .mockReturnValue(new Promise(() => {})),
     });
-    const bus = new RedisStreamEventBus(redisClient as any);
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bus = new RedisStreamEventBus(redisClient as any, testLogger, testMetrics);
+    const warnSpy = vi.spyOn(testLogger, "warn").mockImplementation(() => {});
 
     bus.subscribe("stream", "group", "consumer", {
       [EventCatalog.OrderCreated]: vi.fn(),

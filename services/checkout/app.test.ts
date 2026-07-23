@@ -1,8 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
+import pino from "pino";
 import { createApp } from "@/services/checkout/app";
 import { EventPublisher } from "@/lib/events/event-bus";
 import { EventCatalog } from "@/lib/types";
+import { AppMetrics } from "@/lib/metrics";
+
+const testLogger = pino({ level: "silent" });
+const testMetrics = new AppMetrics("checkout-test");
 
 function createFakeEventBus(): EventPublisher & { publish: ReturnType<typeof vi.fn> } {
   return { publish: vi.fn().mockResolvedValue(undefined) };
@@ -11,7 +16,7 @@ function createFakeEventBus(): EventPublisher & { publish: ReturnType<typeof vi.
 describe("POST /checkout", () => {
   it("returns 200 and publishes an event for a valid payload", async () => {
     const eventBus = createFakeEventBus();
-    const app = createApp(eventBus);
+    const app = createApp(eventBus, testLogger, testMetrics);
 
     const res = await request(app)
       .post("/checkout")
@@ -25,7 +30,7 @@ describe("POST /checkout", () => {
 
   it("returns 400 for an invalid payload and does not publish", async () => {
     const eventBus = createFakeEventBus();
-    const app = createApp(eventBus);
+    const app = createApp(eventBus, testLogger, testMetrics);
 
     const res = await request(app)
       .post("/checkout")
@@ -39,7 +44,7 @@ describe("POST /checkout", () => {
   it("returns 500 when the event bus fails", async () => {
     const eventBus = createFakeEventBus();
     eventBus.publish.mockRejectedValue(new Error("redis down"));
-    const app = createApp(eventBus);
+    const app = createApp(eventBus, testLogger, testMetrics);
 
     const res = await request(app)
       .post("/checkout")

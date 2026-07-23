@@ -1,23 +1,43 @@
 import "dotenv/config";
+import "@/lib/tracing";
 import { createRedisClient } from "@/lib/redis";
+import { createLogger } from "@/lib/logger";
+import { AppMetrics, startMetricsServer } from "@/lib/metrics";
 import { EventCatalog, EventConsumer, EventGroup } from "@/lib/types";
 import { RedisStreamEventBus } from "@/lib/events/redis-event-bus";
 import { db } from "@/databases/drizzle/db";
 import { inventory } from "@/databases/drizzle/schema";
 
+const logger = createLogger("inventory-worker");
+const metrics = new AppMetrics("inventory-worker");
+
 const REDIS_URL = process.env.REDIS_URL;
+const METRICS_PORT = Number(process.env.METRICS_PORT) || 9091;
+const PEL_POLL_MS = 10_000;
 if (!REDIS_URL) {
-  console.error("REDIS_URL environment variable is not set");
+  logger.error("REDIS_URL environment variable is not set");
   process.exit(1);
 }
 
-const redisClient = createRedisClient(REDIS_URL);
-const eventBus = new RedisStreamEventBus(redisClient);
+const redisClient = createRedisClient(REDIS_URL, logger);
+const eventBus = new RedisStreamEventBus(redisClient, logger, metrics);
+
+function pollPendingCount() {
+  setInterval(async () => {
+    const pending = await eventBus.getPendingCount(EventCatalog.OrderCreated, EventGroup.Inventory);
+    metrics.consumerGroupPending.set(
+      { stream: EventCatalog.OrderCreated, group: EventGroup.Inventory },
+      pending,
+    );
+  }, PEL_POLL_MS);
+}
 
 async function startWorker() {
-  console.log("[Inventory-Worker] starting...");
+  logger.info("starting...");
   await redisClient.connect();
-  console.log("[Inventory-Worker] started. Waiting for events...");
+  startMetricsServer(metrics, METRICS_PORT);
+  pollPendingCount();
+  logger.info({ metricsPort: METRICS_PORT }, "started. Waiting for events...");
 
   await eventBus.subscribe(
     EventCatalog.OrderCreated,
@@ -25,22 +45,20 @@ async function startWorker() {
     EventConsumer.InventoryWorker,
     {
       [EventCatalog.OrderCreated]: async (event, id) => {
-        console.log(`[inventory-Worker] Received event ${id}:`, event);
-        console.log(
-          `[inventory-Worker] Handling OrderCreated event with payload: ${event.payload}`,
-        );
+        const log = logger.child({ streamId: id, eventId: event.id });
+        log.info({ payload: event.payload }, "Handling OrderCreated event");
 
         const inventoryData = await db.select().from(inventory);
-        console.log(`[inventory-Worker] Current inventory:`, inventoryData);
+        log.info({ inventoryData }, "Current inventory");
         // Here you would typically parse the payload and perform inventory checks or updates
 
-        console.log(`[inventory-Worker] Process done: ${id}`);
+        log.info("Process done");
       },
     },
   );
 }
 
 startWorker().catch((err) => {
-  console.error("Failed to start worker:", err);
+  logger.error({ err }, "Failed to start worker");
   process.exit(1);
 });

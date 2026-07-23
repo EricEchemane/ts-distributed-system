@@ -16,7 +16,10 @@ describe("checkout controller", () => {
     const eventBus: EventPublisher = { publish: vi.fn().mockResolvedValue(undefined) };
     const checkout = createCheckoutController(eventBus);
 
-    const req = { body: { items: [{ sku: "ABC123", qty: 1 }] } } as Request;
+    const req = {
+      body: { items: [{ sku: "ABC123", qty: 1 }] },
+      log: { info: vi.fn() },
+    } as unknown as Request;
     const res = createMockResponse();
 
     await checkout(req, res);
